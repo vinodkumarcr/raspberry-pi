@@ -4,12 +4,22 @@ import serial
 import string
 import pynmea2
 import RPi.GPIO as gpio
+import smtplib,ssl  
+from picamera import PiCamera  
+from time import sleep  
+from email.mime.multipart import MIMEMultipart  
+from email.mime.base import MIMEBase  
+from email.mime.text import MIMEText  
+from email.utils import formatdate  
+from email import encoders
+import os
 
 gpio.setmode(gpio.BCM)
 gpio.setwarnings(False)
 BUZZ=18
 red=3
 green=4
+wrong=0
 gpio.setup(BUZZ,gpio.OUT)
 gpio.setup(red,gpio.OUT)
 gpio.setup(green,gpio.OUT)
@@ -17,6 +27,50 @@ port = "/dev/ttyUSB0" # the serial port to which the pi is connected.
  
 #create a serial object
 ser = serial.Serial(port, baudrate = 9600, timeout = 0.5)
+def sms(lata,lnga):
+    # Enable Serial Communication
+    port = serial.Serial("/dev/ttyAMA0", baudrate=9600, timeout=1)
+ 
+    # Transmitting AT Commands to the Modem
+    # '\r\n' indicates the Enter key
+    port.write('AT'+'\r\n')
+    rcv = port.read(10)
+    print rcv
+    time.sleep(1)
+ 
+    port.write('ATE0'+'\r\n')      # Disable the Echo
+    rcv = port.read(10)
+    print rcv
+    time.sleep(1)
+ 
+    port.write('AT+CMGF=1'+'\r\n')  # Select Message format as Text mode 
+    rcv = port.read(10)
+    print rcv
+    time.sleep(1)
+ 
+    port.write('AT+CNMI=2,1,0,0,0'+'\r\n')   # New SMS Message Indications
+    rcv = port.read(10)
+    print rcv
+    time.sleep(1)
+    # Sending a message to a particular Number
+    port.write('AT+CMGS="+919000550200"'+'\r\n')
+    rcv = port.read(10)
+    print rcv
+    time.sleep(1)
+    #lcd.message(str(gps))
+    #time.sleep(3)
+    #lcd.clear()
+    message='ALERT:Child is out of his way find here '+'http://www.google.com/maps/place/'+str(lata)+','+str(lnga)
+
+    print message
+    port.write(message+'\r\n')  # Message
+    rcv = port.read(10)
+    print rcv
+    
+    port.write("\x1A") # Enable to send SMS
+    for i in range(10):
+        rcv = port.read(10)
+        print rcv
  
 def gps():
     try:
@@ -39,6 +93,41 @@ def gps():
            
 	time.sleep(0.5)
 	return [latval,longval]
+
+def send_an_email():
+    os.system('fswebcam --no-banner -r 640x480 image.jpg')
+    toaddr = 'user@gmail.com'      # To id 
+    me = 'user@gmail.com'          # your id
+    subject = "Student Image"              # Subject
+  
+    msg = MIMEMultipart()  
+    msg['Subject'] = subject  
+    msg['From'] = me  
+    msg['To'] = toaddr  
+    msg.preamble = "test "   
+    #msg.attach(MIMEText(text))  
+  
+    part = MIMEBase('application', "octet-stream")  
+    part.set_payload(open("image.jpg", "rb").read())  
+    encoders.encode_base64(part)  
+    part.add_header('Content-Disposition', 'attachment; filename="image.jpg"')   # File name and format name
+    msg.attach(part)  
+  
+    try:  
+       s = smtplib.SMTP('smtp.gmail.com', 587)  # Protocol
+       s.ehlo()  
+       s.starttls()  
+       s.ehlo()  
+       s.login(user = 'user@gmail.com', password = '*********')  # User id & password
+       #s.send_message(msg)  
+       s.sendmail(me, toaddr, msg.as_string())  
+       s.quit()
+       print "Email Sent"
+    #except:  
+    #   print ("Error: unable to send email")    
+    except SMTPException as error:  
+          print "Error"                # Exception
+  
 
 
 def getPathLength(lat1,lng1,lat2,lng2):
@@ -98,6 +187,8 @@ def main(interval,azimuth,lat1,lng1,lat2,lng2):
         counter = counter + float(interval)
         coords.append(coord)
     coords.append([lat2,lng2])
+    print d,'meters'
+    time.sleep(2)
     return coords
 
 if __name__ == "__main__":
@@ -105,11 +196,13 @@ if __name__ == "__main__":
     interval = 1
     #direction of line in degrees
     #start point
-    lat1 = 17.385044
-    lng1 = 78.486671
+    lat1 = float(raw_input('Enter the source latitude: '))
+    lng1 = float(raw_input('Enter the 1st longitude: '))
     #end point
-    lat2 = 16.235001
-    lng2 = 77.799698
+    lat2 = 16.437462
+    lng2 = 78.448288
+    #lat2=float(raw_input('enter dest lat'))
+    #lng2=float(raw_input('enter dest lng'))
     azimuth = calculateBearing(lat1,lng1,lat2,lng2)
     #print (azimuth)
     coords = main(interval,azimuth,lat1,lng1,lat2,lng2)
@@ -120,31 +213,65 @@ if __name__ == "__main__":
             lng_gps_data='%.5f'%gps_data[1]
             final_dist_coords.append([lat_gps_data,lng_gps_data])
     print final_dist_coords
+    print len(final_dist_coords)
                 
 
 while True:
-    gpscoords=gps()
+    
+    gpscoords1=[16.44041,78.44797] #right coordinates
+    gpscoords=[15.23540,77.80252] #wrong coordinates
+    #gpscoords=[16.24917,77.81031]
+    #gpscoords=gps()
     try:
-        if gpscoords!=None:
+        if gpscoords!=None and wrong<15:
             lat_gpscoords='%.5f'%gpscoords[0]
             lng_gpscoords='%.5f'%gpscoords[1]
             final_gpscoords=[str(lat_gpscoords),str(lng_gpscoords)]
-            print 'latitude: ',lat_gpscoords
-            print 'longitude: ',lng_gpscoords
+            print 'latitude:',lat_gpscoords
+            print 'longitude:',lng_gpscoords
+            
             time.sleep(0.5)
             if final_gpscoords in final_dist_coords:
                 gpio.output(BUZZ,gpio.LOW)
                 gpio.output(red,gpio.LOW)
                 gpio.output(green,gpio.HIGH)
-                print 'You are going perfect'
+                print 'You are going perfect :positive progress'
                 time.sleep(0.5)
+                wrong=0
             else:
                 gpio.output(BUZZ,gpio.HIGH)
+                time.sleep(5)
+                gpio.output(BUZZ,gpio.LOW)
                 gpio.output(red,gpio.HIGH)
                 gpio.output(green,gpio.LOW)
-                print 'WARNING:WRONG DIRECTION'
+                print 'WARNING:WRONG DIRECTION : negative progress'
                 time.sleep(0.5)
-    except:
+                wrong+=1
+                if wrong>10:
+                    sms(lat_gpscoords,lng_gpscoords)
+                    send_an_email()
+                    wrong=0
+
+        if gpscoords1!=None and wrong>=15:
+            lat_gpscoords='%.5f'%gpscoords1[0]
+            lng_gpscoords='%.5f'%gpscoords1[1]
+            final_gpscoords=[str(lat_gpscoords),str(lng_gpscoords)]
+            print 'latitude:',lat_gpscoords
+            print 'longitude:',lng_gpscoords
+            
+            time.sleep(0.5)
+            if final_gpscoords in final_dist_coords:
+                gpio.output(BUZZ,gpio.LOW)
+                gpio.output(red,gpio.LOW)
+                gpio.output(green,gpio.HIGH)
+                print 'You are going perfect :positive progress'
+                time.sleep(0.5)
+                
+          
+               
+                    
+                
+    except KeyboardInterrupt:
         print 'The System Shutdown'
         break
                 
